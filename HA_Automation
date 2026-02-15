@@ -1,0 +1,77 @@
+alias: Marstek & HMS Kombi-Regelung (Vorzeichen Fix)
+description: Speicher-Befehl folgt dem Zähler-Vorzeichen (p_now)
+triggers:
+  - entity_id: sensor.tasmota_mt175_power_curr
+    trigger: state
+actions:
+  - variables:
+      p_now: "{{ states('sensor.tasmota_mt175_power_curr') | float(0) }}"
+      soc: "{{ states('sensor.marstek_venus_a_state_of_charge') | float(50) }}"
+      c_limit: >-
+        {{ states('number.hms_1600_zaun_limit_nonpersistent_absolute') |
+        float(100) }}
+      actual_solar: "{{ states('sensor.hms_1600_zaun_power') | float(0) }}"
+      p_marstek_last: "{{ states('input_number.marstek_last_output_value') | float(0) }}"
+      last_changed: >-
+        {{ (as_timestamp(now()) -
+        as_timestamp(states.input_number.marstek_last_output_value.last_updated
+        | default(0))) | int }}
+      p_pure: "{{ p_now + p_marstek_last }}"
+      target_raw: "{{ p_pure }}"
+      marstek_calc: |
+        {% if (soc >= 95 and target_raw < 0) or (soc <= 5 and target_raw > 0) %}
+          0
+        {% elif target_raw | abs < 50 %}
+          0
+        {% else %}
+          {{ ([target_raw, -500] | max, 500) | min }}
+        {% endif %}
+  - action: input_number.set_value
+    target:
+      entity_id: input_number.marstek_debug_value
+    data:
+      value: "{{ p_pure | float }}"
+  - if:
+      - condition: template
+        value_template: "{{ last_changed >= 25 }}"
+    then:
+      - action: marstek_local_api.set_passive_mode
+        data:
+          device_id: 407e8c2f27288771c00fde327bb2b91d
+          power: "{{ marstek_calc | int }}"
+          duration: 60
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.marstek_last_output_value
+        data:
+          value: "{{ marstek_calc | float }}"
+  - variables:
+      new_hms_limit: |
+        {% if soc < 95 and marstek_calc < -10 %}
+          1600
+        {% else %}
+          {% set diff_hms = (p_now + 400) | abs %}
+          {% if diff_hms < 15 %}
+            {{ c_limit }}
+          {% elif p_now < -405 %}
+            {{ [c_limit - (diff_hms * 0.5), 400] | max }}
+          {% elif p_now > -395 %}
+            {% if (c_limit - actual_solar) > 50 %}
+              {{ c_limit }}
+            {% else %}
+              {{ [c_limit + diff_hms, 1600] | min }}
+            {% endif %}
+          {% else %}
+            {{ c_limit }}
+          {% endif %}
+        {% endif %}
+  - if:
+      - condition: template
+        value_template: "{{ (new_hms_limit | float - c_limit) | abs > 1 }}"
+    then:
+      - action: number.set_value
+        target:
+          entity_id: number.hms_1600_zaun_limit_nonpersistent_absolute
+        data:
+          value: "{{ new_hms_limit | float }}"
+mode: restart
