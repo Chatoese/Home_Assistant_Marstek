@@ -18,6 +18,16 @@ actions:
         | default(0))) | int }}
       p_pure: "{{ p_now + p_marstek_last }}"
       target_raw: "{{ p_pure }}"
+      
+      target_with_margin: >-      # Margin um Netzbezug und Einspeisung zu vermindern
+        {% if p_pure > 20 %}
+          {{ p_pure - 20 }}
+        {% elif p_pure < -20 %}
+          {{ p_pure + 20 }}
+        {% else %}
+          0
+        {% endif %}
+      
       marstek_calc: |
         {% if (soc >= 95 and target_raw < 0) or (soc <= 5 and target_raw > 0) %}
           0
