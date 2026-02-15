@@ -1,5 +1,5 @@
 alias: Marstek & HMS Kombi-Regelung (Vorzeichen Fix)
-description: Speicher-Befehl folgt dem Zähler-Vorzeichen (p_now)
+description: Mit 20W Marge und optionaler Entladesperre
 triggers:
   - entity_id: sensor.tasmota_mt175_power_curr
     trigger: state
@@ -7,19 +7,18 @@ actions:
   - variables:
       p_now: "{{ states('sensor.tasmota_mt175_power_curr') | float(0) }}"
       soc: "{{ states('sensor.marstek_venus_a_state_of_charge') | float(50) }}"
-      c_limit: >-
-        {{ states('number.hms_1600_zaun_limit_nonpersistent_absolute') |
-        float(100) }}
+      # Das Flag: 'on' bedeutet Entladen ist gesperrt
+      discharge_lock: "{{ is_state('input_boolean.speicher_entladen_sperren', 'on') }}"
+      c_limit: "{{ states('number.hms_1600_zaun_limit_nonpersistent_absolute') | float(100) }}"
       actual_solar: "{{ states('sensor.hms_1600_zaun_power') | float(0) }}"
       p_marstek_last: "{{ states('input_number.marstek_last_output_value') | float(0) }}"
       last_changed: >-
         {{ (as_timestamp(now()) -
         as_timestamp(states.input_number.marstek_last_output_value.last_updated
-        | default(0))) | int }}
+        | default(now()))) | int }}
       p_pure: "{{ p_now + p_marstek_last }}"
-      target_raw: "{{ p_pure }}"
       
-      target_with_margin: >-      # Margin um Netzbezug und Einspeisung zu vermindern
+      target_with_margin: >-
         {% if p_pure > 20 %}
           {{ p_pure - 20 }}
         {% elif p_pure < -20 %}
@@ -27,20 +26,25 @@ actions:
         {% else %}
           0
         {% endif %}
-      
-      marstek_calc: |
-        {% if (soc >= 95 and target_raw < 0) or (soc <= 5 and target_raw > 0) %}
+
+      marstek_calc: >-
+        {% if (soc >= 95 and target_with_margin < 0) or (soc <= 5 and target_with_margin > 0) %}
           0
-        {% elif target_raw | abs < 50 %}
+        {% elif discharge_lock and target_with_margin > 0 %}
+          {# Entladen ist gesperrt, Netzbezug wird ignoriert #}
+          0
+        {% elif target_with_margin | abs < 30 %}
           0
         {% else %}
-          {{ ([target_raw, -500] | max, 500) | min }}
+          {{ ([target_with_margin, -500] | max, 500) | min }}
         {% endif %}
+
   - action: input_number.set_value
     target:
       entity_id: input_number.marstek_debug_value
     data:
       value: "{{ p_pure | float }}"
+
   - if:
       - condition: template
         value_template: "{{ last_changed >= 25 }}"
@@ -55,9 +59,10 @@ actions:
           entity_id: input_number.marstek_last_output_value
         data:
           value: "{{ marstek_calc | float }}"
+
   - variables:
-      new_hms_limit: |
-        {% if soc < 95 and marstek_calc < -10 %}
+      new_hms_limit: >-
+        {% if soc < 95 and (marstek_calc | float) < -10 %}
           1600
         {% else %}
           {% set diff_hms = (p_now + 400) | abs %}
@@ -75,6 +80,7 @@ actions:
             {{ c_limit }}
           {% endif %}
         {% endif %}
+
   - if:
       - condition: template
         value_template: "{{ (new_hms_limit | float - c_limit) | abs > 1 }}"
