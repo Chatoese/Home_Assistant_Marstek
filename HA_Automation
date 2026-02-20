@@ -1,16 +1,32 @@
-alias: Marstek & HMS Kombi-Regelung (Vorzeichen Fix)
-description: Mit 20W Marge und optionaler Entladesperre
+alias: Marstek & HMS Kombi-Regelung (mit API-Watchdog & Zähler)
+description: Mit 20W Marge, Entladesperre, API-Reload und Neustart-Zähler
 triggers:
   - entity_id: sensor.tasmota_mt175_power_curr
     trigger: state
 actions:
+  # 1. API WATCHDOG: Prüfen ob Verbindung steht
+  - if:
+      - condition: template
+        value_template: "{{ states('sensor.marstek_venus_a_state_of_charge') in ['unavailable', 'unknown'] }}"
+    then:
+      # Zähler um 1 erhöhen
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.marstek_api_restarts
+        data:
+          value: "{{ states('input_number.marstek_api_restarts') | float(0) + 1 }}"
+      # Integration neu laden
+      - action: homeassistant.reload_config_entry
+        data:
+          entry_id: 01KCBR7YF159PYWZD1WG03WRKT
+      - stop: "Marstek API nicht erreichbar - Neustart Nr. {{ states('input_number.marstek_api_restarts') }} ausgelöst."
+
+  # 2. VARIABLEN BERECHNEN
   - variables:
       p_now: "{{ states('sensor.tasmota_mt175_power_curr') | float(0) }}"
-      soc: "{{ states('sensor.marstek_venus_a_state_of_charge') | float(10) }}"
+      soc: "{{ states('sensor.marstek_venus_a_state_of_charge') | float(0) }}"
       discharge_lock: "{{ is_state('input_boolean.speicher_entladen_sperren', 'on') }}"
-      c_limit: >-
-        {{ states('number.hms_1600_zaun_limit_nonpersistent_absolute') |
-        float(100) }}
+      c_limit: "{{ states('number.hms_1600_zaun_limit_nonpersistent_absolute') | float(100) }}"
       actual_solar: "{{ states('sensor.hms_1600_zaun_power') | float(0) }}"
       p_marstek_last: "{{ states('input_number.marstek_last_output_value') | float(0) }}"
       last_changed: >-
@@ -27,17 +43,17 @@ actions:
           0
         {% endif %}
       marstek_calc: >-
-        {% if (soc >= 100 and target_with_margin < 0) or (soc <= 15 and
-        target_with_margin > 0) %}
+        {% if (soc >= 100 and target_with_margin < 0) or (soc <= 15 and target_with_margin > 0) %}
           0
         {% elif discharge_lock and target_with_margin > 0 %}
-          {# Entladen ist gesperrt, Netzbezug wird ignoriert #}
           0
         {% elif target_with_margin | abs < 30 %}
           0
         {% else %}
           {{ ([target_with_margin, -1200] | max, 600) | min }}
         {% endif %}
+
+  # 3. DEBUG & AUSFÜHRUNG MARSTEK
   - action: input_number.set_value
     target:
       entity_id: input_number.marstek_debug_value
@@ -57,6 +73,8 @@ actions:
           entity_id: input_number.marstek_last_output_value
         data:
           value: "{{ marstek_calc | float }}"
+
+  # 4. HMS WECHSELRICHTER REGELUNG
   - variables:
       new_hms_limit: |-
         {% if soc < 95 and (marstek_calc | float) < -10 %}
