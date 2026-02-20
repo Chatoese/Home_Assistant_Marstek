@@ -4,7 +4,7 @@ triggers:
   - entity_id: sensor.tasmota_mt175_power_curr
     trigger: state
 actions:
-  # 1. API WATCHDOG: Prüfen ob Verbindung steht
+# 1. API WATCHDOG: Prüfen ob Verbindung steht
   - if:
       - condition: template
         value_template: "{{ states('sensor.marstek_venus_a_state_of_charge') in ['unavailable', 'unknown'] }}"
@@ -15,11 +15,17 @@ actions:
           entity_id: input_number.marstek_api_restarts
         data:
           value: "{{ states('input_number.marstek_api_restarts') | float(0) + 1 }}"
+      
       # Integration neu laden
       - action: homeassistant.reload_config_entry
         data:
           entry_id: 01KCBR7YF159PYWZD1WG03WRKT
-      - stop: "Marstek API nicht erreichbar - Neustart Nr. {{ states('input_number.marstek_api_restarts') }} ausgelöst."
+      
+      # 10 Sekunden warten, damit die API Zeit zum Starten hat
+      - delay:
+          seconds: 10
+          
+      - stop: "Marstek API neu geladen - 10s Wartezeit beendet."
 
   # 2. VARIABLEN BERECHNEN
   - variables:
