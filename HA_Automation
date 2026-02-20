@@ -6,7 +6,7 @@ triggers:
 actions:
   - variables:
       p_now: "{{ states('sensor.tasmota_mt175_power_curr') | float(0) }}"
-      soc: "{{ states('sensor.marstek_venus_a_state_of_charge') | float(50) }}"
+      soc: "{{ states('sensor.marstek_venus_a_state_of_charge') | float(10) }}"
       discharge_lock: "{{ is_state('input_boolean.speicher_entladen_sperren', 'on') }}"
       c_limit: >-
         {{ states('number.hms_1600_zaun_limit_nonpersistent_absolute') |
@@ -27,7 +27,7 @@ actions:
           0
         {% endif %}
       marstek_calc: >-
-        {% if (soc >= 95 and target_with_margin < 0) or (soc <= 5 and
+        {% if (soc >= 100 and target_with_margin < 0) or (soc <= 15 and
         target_with_margin > 0) %}
           0
         {% elif discharge_lock and target_with_margin > 0 %}
@@ -36,7 +36,7 @@ actions:
         {% elif target_with_margin | abs < 30 %}
           0
         {% else %}
-          {{ ([target_with_margin, -1000] | max, 500) | min }}
+          {{ ([target_with_margin, -1200] | max, 600) | min }}
         {% endif %}
   - action: input_number.set_value
     target:
@@ -45,7 +45,7 @@ actions:
       value: "{{ soc | float }}"
   - if:
       - condition: template
-        value_template: "{{ last_changed >= 25 }}"
+        value_template: "{{ last_changed >= 8 }}"
     then:
       - action: marstek_local_api.set_passive_mode
         data:
