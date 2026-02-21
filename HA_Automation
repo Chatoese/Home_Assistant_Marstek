@@ -7,8 +7,7 @@ actions:
   - if:
       - condition: template
         value_template: >-
-          {{ states('sensor.marstek_venus_a_state_of_charge') in ['unavailable',
-          'unknown'] }}
+          {{ states('sensor.marstek_venus_a_state_of_charge') in ['unavailable','unknown'] }}
     then:
       - action: input_number.set_value
         target:
@@ -32,8 +31,7 @@ actions:
       p_marstek_last: "{{ states('input_number.marstek_last_output_value') | float(0) }}"
       last_changed: >-
         {{ (as_timestamp(now()) -
-        as_timestamp(states.input_number.marstek_last_output_value.last_updated
-        | default(now()))) | int }}
+        as_timestamp(states.input_number.marstek_last_output_value.last_updated | default(now()))) | int }}
       p_pure: "{{ p_now + p_marstek_last }}"
       target_with_margin: |-
         {% if p_pure > 20 %}
@@ -44,8 +42,7 @@ actions:
           0
         {% endif %}
       marstek_calc: >-
-        {% if (soc >= 100 and target_with_margin < 0) or (soc <= 15 and
-        target_with_margin > 0) %}
+        {% if (soc >= 100 and target_with_margin < 0) or (soc <= 15 and target_with_margin > 0) %}
           0
         {% elif discharge_lock and target_with_margin > 0 %}
           0
@@ -75,7 +72,7 @@ actions:
           value: "{{ marstek_calc | float }}"
   - variables:
       new_hms_limit: |-
-        {% if soc < 95 and (marstek_calc | float) < -10 %}
+        {% if soc < 90 and (marstek_calc | float) < -10 %}
           1600
         {% else %}
           {% set diff_hms = (p_now + 400) | abs %}
