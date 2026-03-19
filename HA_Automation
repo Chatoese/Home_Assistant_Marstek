@@ -1,5 +1,5 @@
-alias: Marstek & HMS Kombi-Regelung (Wetter-angepasst)
-description: Entladelimit sinkt ab 6 Uhr bei Sonne auf 12%
+alias: Marstek & HMS Kombi-Regelung (Wetter-angepasst & 200W Limit)
+description: Entladelimit 12% zw. 6-14 Uhr bei Sonne, sonst 20%. HMS Limit min 200W.
 triggers:
   - entity_id: sensor.tasmota_mt175_power_curr
     trigger: state
@@ -21,7 +21,7 @@ actions:
       - delay:
           seconds: 30
       - stop: Marstek API neu geladen - 30s Wartezeit beendet.
-variables:
+  - variables:
       p_now: "{{ states('sensor.tasmota_mt175_power_curr') | float(0) }}"
       soc: "{{ states('sensor.marstek_venus_a_state_of_charge') | float(0) }}"
       discharge_lock: "{{ is_state('input_boolean.speicher_entladen_sperren', 'on') }}"
@@ -36,18 +36,12 @@ variables:
         | default(now()))) | int }}
       p_pure: "{{ p_now + p_marstek_last }}"
       
-      # DYNAMISCHE SOC SCHWELLE (Logik korrigiert)
+      # Wetter-Check und Zeitfenster (6 bis 14 Uhr)
       min_soc: >-
         {% set weather = states('weather.forecast_home') %}
         {% set is_sunny = weather in ['sunny', 'partlycloudy'] %}
-        {# Zeitfenster: Ab 06:00 bis 14:00 Uhr #}
         {% set is_time_window = 6 <= now().hour < 14 %}
-        
-        {% if is_sunny and is_time_window %}
-          12
-        {% else %}
-          20
-        {% endif %}
+        {{ 12 if (is_sunny and is_time_window) else 20 }}
         
       target_with_margin: |-
         {% if p_pure > 20 %}
@@ -58,7 +52,6 @@ variables:
           0
         {% endif %}
       marstek_calc: >-
-        {# Hier wird nun min_soc statt der festen 20 verwendet #}
         {% if (soc >= 100 and target_with_margin < 0) or (soc <= min_soc and
         target_with_margin > 0) %}
           0
@@ -93,12 +86,13 @@ variables:
         {% if soc < 90 and (marstek_calc | float) < -10 %}
           1600
         {% else %}
-          {% set diff_hms = (p_now + 400) | abs %}
+          {# Hier wurde der Zielwert für p_now auf -205 (statt -405) und das Minimum auf 200 angepasst #}
+          {% set diff_hms = (p_now + 200) | abs %}
           {% if diff_hms < 15 %}
             {{ c_limit }}
-          {% elif p_now < -405 %}
-            {{ [c_limit - (diff_hms * 0.5), 400] | max }}
-          {% elif p_now > -395 %}
+          {% elif p_now < -205 %}
+            {{ [c_limit - (diff_hms * 0.5), 200] | max }}
+          {% elif p_now > -195 %}
             {% if (c_limit - actual_solar) > 50 %}
               {{ c_limit }}
             {% else %}
@@ -108,14 +102,8 @@ variables:
             {{ c_limit }}
           {% endif %}
         {% endif %}
-  - if:
-      - condition: template
-        value_template: "{{ (new_hms_limit | float - c_limit) | abs > 1 }}"
-    then:
-      - action: number.set_value
-        target:
-          entity_id: number.hms_1600_zaun_limit_nonpersistent_absolute
-        data:
-          value: "{{ new_hms_limit | float }}"
-mode: single
-  
+  - action: number.set_value
+    target:
+      entity_id: number.hms_1600_zaun_limit_nonpersistent_absolute
+    data:
+      value: "{{ new_hms_limit | int }}"
