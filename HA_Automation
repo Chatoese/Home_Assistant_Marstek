@@ -1,5 +1,5 @@
-alias: Marstek & HMS Kombi-Regelung (mit API-Watchdog & Zähler)
-description: Mit 20W Marge, Entladesperre, API-Reload und Neustart-Zähler
+alias: Marstek & HMS Kombi-Regelung (Wetter-angepasst)
+description: Entladelimit sinkt ab 6 Uhr bei Sonne auf 12%
 triggers:
   - entity_id: sensor.tasmota_mt175_power_curr
     trigger: state
@@ -7,7 +7,8 @@ actions:
   - if:
       - condition: template
         value_template: >-
-          {{ states('sensor.marstek_venus_a_state_of_charge') in ['unavailable','unknown'] }}
+          {{ states('sensor.marstek_venus_a_state_of_charge') in
+          ['unavailable','unknown'] }}
     then:
       - action: input_number.set_value
         target:
@@ -16,10 +17,10 @@ actions:
           value: "{{ states('input_number.marstek_api_restarts') | float(0) + 1 }}"
       - action: homeassistant.reload_config_entry
         data:
-          entry_id: 01KCBR7YF159PYWZD1WG03WRKT
+          entry_id: 01KJ2V2DEGFKQ846S556B89RBQ
       - delay:
-          seconds: 10
-      - stop: Marstek API neu geladen - 10s Wartezeit beendet.
+          seconds: 30
+      - stop: Marstek API neu geladen - 30s Wartezeit beendet.
   - variables:
       p_now: "{{ states('sensor.tasmota_mt175_power_curr') | float(0) }}"
       soc: "{{ states('sensor.marstek_venus_a_state_of_charge') | float(0) }}"
@@ -31,25 +32,36 @@ actions:
       p_marstek_last: "{{ states('input_number.marstek_last_output_value') | float(0) }}"
       last_changed: >-
         {{ (as_timestamp(now()) -
-        as_timestamp(states.input_number.marstek_last_output_value.last_updated | default(now()))) | int }}
+        as_timestamp(states.input_number.marstek_last_output_value.last_updated
+        | default(now()))) | int }}
       p_pure: "{{ p_now + p_marstek_last }}"
+      
+      # NEU: Dynamische SOC-Schwelle
+      min_soc: >-
+        {% set weather = states('weather.forecast_home') %}
+        {% set is_sunny = weather in ['sunny', 'partlycloudy'] %}
+        {% set is_morning = now().hour >= 6 %}
+        {{ 12 if (is_sunny and is_morning) else 20 }}
+        
       target_with_margin: |-
         {% if p_pure > 20 %}
           {{ p_pure - 20 }}
-        {% elif p_pure < -20 %}
-          {{ p_pure + 20 }}
+        {% elif p_pure < -10 %}
+          {{ p_pure + 10 }}
         {% else %}
           0
         {% endif %}
       marstek_calc: >-
-        {% if (soc >= 100 and target_with_margin < 0) or (soc <= 15 and target_with_margin > 0) %}
+        {# Hier wird nun min_soc statt der festen 20 verwendet #}
+        {% if (soc >= 100 and target_with_margin < 0) or (soc <= min_soc and
+        target_with_margin > 0) %}
           0
         {% elif discharge_lock and target_with_margin > 0 %}
           0
         {% elif target_with_margin | abs < 30 %}
           0
         {% else %}
-          {{ ([target_with_margin, -1200] | max, 600) | min }}
+          {{ ([target_with_margin, -1200] | max, 1000) | min }}
         {% endif %}
   - action: input_number.set_value
     target:
@@ -58,7 +70,7 @@ actions:
       value: "{{ soc | float }}"
   - if:
       - condition: template
-        value_template: "{{ last_changed >= 3 }}"
+        value_template: "{{ last_changed >= 2 }}"
     then:
       - action: marstek_local_api.set_passive_mode
         data:
@@ -100,3 +112,4 @@ actions:
         data:
           value: "{{ new_hms_limit | float }}"
 mode: single
+  
