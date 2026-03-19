@@ -21,7 +21,7 @@ actions:
       - delay:
           seconds: 30
       - stop: Marstek API neu geladen - 30s Wartezeit beendet.
-  - variables:
+variables:
       p_now: "{{ states('sensor.tasmota_mt175_power_curr') | float(0) }}"
       soc: "{{ states('sensor.marstek_venus_a_state_of_charge') | float(0) }}"
       discharge_lock: "{{ is_state('input_boolean.speicher_entladen_sperren', 'on') }}"
@@ -36,12 +36,18 @@ actions:
         | default(now()))) | int }}
       p_pure: "{{ p_now + p_marstek_last }}"
       
-      # NEU: Dynamische SOC-Schwelle
+      # DYNAMISCHE SOC SCHWELLE (Logik korrigiert)
       min_soc: >-
         {% set weather = states('weather.forecast_home') %}
         {% set is_sunny = weather in ['sunny', 'partlycloudy'] %}
-        {% set is_morning = now().hour >= 6 %}
-        {{ 12 if (is_sunny and is_morning) else 20 }}
+        {# Zeitfenster: Ab 06:00 bis 14:00 Uhr #}
+        {% set is_time_window = 6 <= now().hour < 14 %}
+        
+        {% if is_sunny and is_time_window %}
+          12
+        {% else %}
+          20
+        {% endif %}
         
       target_with_margin: |-
         {% if p_pure > 20 %}
