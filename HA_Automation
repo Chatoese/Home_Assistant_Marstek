@@ -1,5 +1,6 @@
 alias: Marstek & HMS Kombi-Regelung (Wetter-angepasst & 200W Limit)
 description: Entladelimit 12% zw. 6-14 Uhr bei Sonne, sonst 20%. HMS Limit min 200W.
+mode: single
 triggers:
   - entity_id: sensor.tasmota_mt175_power_curr
     trigger: state
