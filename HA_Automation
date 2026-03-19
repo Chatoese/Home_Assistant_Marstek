@@ -1,6 +1,6 @@
-alias: Marstek & HMS Kombi-Regelung (Wetter-angepasst & 200W Limit)
-description: Entladelimit 12% zw. 6-14 Uhr bei Sonne, sonst 20%. HMS Limit min 200W.
-mode: single
+alias: Marstek & HMS Kombi-Regelung (Urlaubs-Modus & Wetter)
+description: Mit 80% Ladelimit Option, 12% Sonnen-Entladung und 200W HMS-Limit
+mode: restart
 triggers:
   - entity_id: sensor.tasmota_mt175_power_curr
     trigger: state
@@ -21,11 +21,16 @@ actions:
           entry_id: 01KJ2V2DEGFKQ846S556B89RBQ
       - delay:
           seconds: 30
-      - stop: Marstek API neu geladen - 30s Wartezeit beendet.
+      - stop: Marstek API neu geladen.
   - variables:
       p_now: "{{ states('sensor.tasmota_mt175_power_curr') | float(0) }}"
       soc: "{{ states('sensor.marstek_venus_a_state_of_charge') | float(0) }}"
       discharge_lock: "{{ is_state('input_boolean.speicher_entladen_sperren', 'on') }}"
+      
+      # --- EINSTELLUNGEN ---
+      max_soc_limit: 100  # Ändere dies auf 100 für Normalbetrieb oder 80 für Urlaub
+      # ---------------------
+
       c_limit: >-
         {{ states('number.hms_1600_zaun_limit_nonpersistent_absolute') |
         float(100) }}
@@ -37,7 +42,6 @@ actions:
         | default(now()))) | int }}
       p_pure: "{{ p_now + p_marstek_last }}"
       
-      # Wetter-Check und Zeitfenster (6 bis 14 Uhr)
       min_soc: >-
         {% set weather = states('weather.forecast_home') %}
         {% set is_sunny = weather in ['sunny', 'partlycloudy'] %}
@@ -52,9 +56,13 @@ actions:
         {% else %}
           0
         {% endif %}
+
       marstek_calc: >-
-        {% if (soc >= 100 and target_with_margin < 0) or (soc <= min_soc and
-        target_with_margin > 0) %}
+        {# Bedingung 1: Entladestopp bei min_soc #}
+        {% if soc <= min_soc and target_with_margin > 0 %}
+          0
+        {# Bedingung 2: Ladestopp bei max_soc_limit (Urlaubsmodus) #}
+        {% elif soc >= max_soc_limit and target_with_margin < 0 %}
           0
         {% elif discharge_lock and target_with_margin > 0 %}
           0
@@ -63,11 +71,13 @@ actions:
         {% else %}
           {{ ([target_with_margin, -1200] | max, 1000) | min }}
         {% endif %}
+
   - action: input_number.set_value
     target:
       entity_id: input_number.marstek_debug_value
     data:
       value: "{{ soc | float }}"
+
   - if:
       - condition: template
         value_template: "{{ last_changed >= 2 }}"
@@ -82,12 +92,12 @@ actions:
           entity_id: input_number.marstek_last_output_value
         data:
           value: "{{ marstek_calc | float }}"
+
   - variables:
       new_hms_limit: |-
         {% if soc < 90 and (marstek_calc | float) < -10 %}
           1600
         {% else %}
-          {# Hier wurde der Zielwert für p_now auf -205 (statt -405) und das Minimum auf 200 angepasst #}
           {% set diff_hms = (p_now + 200) | abs %}
           {% if diff_hms < 15 %}
             {{ c_limit }}
