@@ -33,7 +33,7 @@ actions:
 
       c_limit: >-
         {{ states('number.hms_1600_zaun_limit_nonpersistent_absolute') |
-        float(100) }}
+        float(1600) }}
       actual_solar: "{{ states('sensor.hms_1600_zaun_power') | float(0) }}"
       p_marstek_last: "{{ states('input_number.marstek_last_output_value') | float(0) }}"
       last_changed: >-
