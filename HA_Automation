@@ -75,12 +75,13 @@ actions:
         {% if (soc >= 100 and target_with_margin < 0) or (soc <= min_soc and target_with_margin > 0) %} 0
         {% elif discharge_lock and target_with_margin > 0 %} 0
         {% elif target_with_margin | abs < 30 %} 0
-        {% else %} {{ ([target_with_margin, -1200] | max, 1000) | min }} {% endif %}
+        {% else %} {{ ([target_with_margin, -1200] | max, 1000) | min }} {% endif %}    
       
       marstek_should_update: >
         {% set marstek_delay = last_changed >= 2 %}
         {% set diff = (p_marstek_last - marstek_calc | float(0)) | abs %}
         {% set marstek_significant_change = diff > 10 %}
+        {{ marstek_delay and marstek_significant_change and marstek_calc is number }}
   
   # HMS LOGIK (Nutzt p_avg für Ruhe im System!)
       current_hms_limit: "{{ states('number.hms_1600_zaun_limit_nonpersistent_absolute') | float(0) }}"
