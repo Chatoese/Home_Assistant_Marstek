@@ -81,7 +81,7 @@ actions:
       current_hms_limit: "{{ states('number.hms_1600_zaun_limit_nonpersistent_absolute') | float(0) }}"
       target_export: -400
       new_hms_limit_raw: "{{ (current_hms_limit + p_avg - target_export) | round(0) | int }}"
-      clamped_hms_limit: "{{ [[new_hms_limit_raw, 200] | max, 1600] | min }}"
+      clamped_hms_limit: "{{ [[new_hms_limit_raw, 100] | max, 1600] | min }}"
 
       hms_should_update: >
         {% set low_export_or_import = p_avg > -50 %}
@@ -100,7 +100,7 @@ actions:
   # 4. AUSFÜHRUNG MARSTEK (Schnell)
   - if:
       - condition: template
-        value_template: "{{ last_changed >= 2 }}"
+        value_template: "{{ last_changed >= 1 }}"
     then:
       - action: marstek_local_api.set_passive_mode
         data:
