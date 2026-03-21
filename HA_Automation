@@ -121,13 +121,6 @@ actions:
 
   # 5. AUSFÜHRUNG HMS (Gedämpft)
 
-   # Debug Ausgabe
-   - action: input_number.set_value
-    target:
-      entity_id: input_number.marstek_debug_value
-    data:
-      value: "{{ new_hms_limit_raw | float }}"
-
   - if:
       - condition: template
         value_template: "{{ hms_should_update }}"
@@ -137,3 +130,10 @@ actions:
           entity_id: number.hms_1600_zaun_limit_nonpersistent_absolute
         data:
           value: "{{ clamped_hms_limit }}"
+
+       # Debug Ausgabe
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.marstek_debug_value
+        data:
+          value: "{{ new_hms_limit_raw | float }}"  
