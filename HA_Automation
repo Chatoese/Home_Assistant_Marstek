@@ -63,12 +63,12 @@ actions:
       min_soc: >
         {% set weather = states('weather.forecast_home') %}
         {% set is_sunny = weather in ['sunny', 'partlycloudy', 'clear-night'] %}
-        {% set is_time_window = 6 <= now().hour < 14 %}
+        {% set is_time_window = 6 <= now().hour < 12 %}
         {{ 12 if (is_sunny and is_time_window) else 20 }}
 
       target_with_margin: |-
         {% if p_pure > 20 %} {{ p_pure - 20 }}
-        {% elif p_pure < -10 %} {{ p_pure + 10 }}
+        {% elif p_pure < -8 %} {{ p_pure + 8 }}
         {% else %} 0 {% endif %}
 
       marstek_calc: >
@@ -78,24 +78,13 @@ actions:
         {% else %} {{ ([target_with_margin, -1200] | max, 1000) | min }} {% endif %}
 
    # Debug Ausgabe
-   - action: input_number.set_value
-    target:
-      entity_id: input_number.marstek_debug_value
-    data:
-      value: "{{ soc | float }}"
+   #- action: input_number.set_value
+    #target:
+   #   entity_id: input_number.marstek_debug_value
+  #  data:
+   #   value: "{{ soc | float }}"
 
-      # HMS LOGIK (Nutzt p_avg für Ruhe im System!)
-      current_hms_limit: "{{ states('number.hms_1600_zaun_limit_nonpersistent_absolute') | float(0) }}"
-      target_export: -400
-      new_hms_limit_raw: "{{ (current_hms_limit + p_avg - target_export) | round(0) | int }}"
-      clamped_hms_limit: "{{ [[new_hms_limit_raw, 200] | max, 1600] | min }}"
-
-      hms_should_update: >
-        {% set low_export_or_import = p_avg > -50 %}
-        {% set extreme_export = p_avg < -600 %}
-        {% set significant_change = (clamped_hms_limit - current_hms_limit) | abs > 15 %}
-        {{ (low_export_or_import or extreme_export) and significant_change }}
-
+    
   # 4. AUSFÜHRUNG MARSTEK (Schnell)
   - if:
       - condition: template
@@ -113,6 +102,25 @@ actions:
           value: "{{ marstek_calc | float }}"
 
   # 5. AUSFÜHRUNG HMS (Gedämpft)
+  # HMS LOGIK (Nutzt p_avg für Ruhe im System!)
+      current_hms_limit: "{{ states('number.hms_1600_zaun_limit_nonpersistent_absolute') | float(0) }}"
+      target_export: -400
+      new_hms_limit_raw: "{{ (current_hms_limit + p_avg - target_export) | round(0) | int }}"
+      clamped_hms_limit: "{{ [[new_hms_limit_raw, 200] | max, 1600] | min }}"
+
+      hms_should_update: >
+        {% set low_export_or_import = p_avg > -50 %}
+        {% set extreme_export = p_avg < -600 %}
+        {% set significant_change = (clamped_hms_limit - current_hms_limit) | abs > 25 %}
+        {{ (low_export_or_import or extreme_export) and significant_change }}
+
+   # Debug Ausgabe
+   - action: input_number.set_value
+    target:
+      entity_id: input_number.marstek_debug_value
+    data:
+      value: "{{ new_hms_limit_raw | float }}"
+
   - if:
       - condition: template
         value_template: "{{ hms_should_update }}"
