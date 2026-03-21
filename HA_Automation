@@ -77,6 +77,12 @@ actions:
         {% elif target_with_margin | abs < 30 %} 0
         {% else %} {{ ([target_with_margin, -1200] | max, 1000) | min }} {% endif %}
 
+      marstek_should_update: >
+        {% set marstek_delay = last_changed >= 1 %}
+        {% set marstek_significant_change = (p_marstek_last - marstek_calc) | abs > 10 %}
+        {{ marstek_delay and marstek_significant_change }}
+
+
   # HMS LOGIK (Nutzt p_avg für Ruhe im System!)
       current_hms_limit: "{{ states('number.hms_1600_zaun_limit_nonpersistent_absolute') | float(0) }}"
       target_export: -400
@@ -100,7 +106,7 @@ actions:
   # 4. AUSFÜHRUNG MARSTEK (Schnell)
   - if:
       - condition: template
-        value_template: "{{ last_changed >= 1 }}"
+        value_template: "{{ marstek_should_update }}"
     then:
       - action: marstek_local_api.set_passive_mode
         data:
