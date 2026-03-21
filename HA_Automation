@@ -77,6 +77,13 @@ actions:
         {% elif target_with_margin | abs < 30 %} 0
         {% else %} {{ ([target_with_margin, -1200] | max, 1000) | min }} {% endif %}
 
+   # Debug Ausgabe
+   - action: input_number.set_value
+    target:
+      entity_id: input_number.marstek_debug_value
+    data:
+      value: "{{ soc | float }}"
+
       # HMS LOGIK (Nutzt p_avg für Ruhe im System!)
       current_hms_limit: "{{ states('number.hms_1600_zaun_limit_nonpersistent_absolute') | float(0) }}"
       target_export: -400
