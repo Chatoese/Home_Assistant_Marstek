@@ -78,9 +78,11 @@ actions:
         {% else %} {{ ([target_with_margin, -1200] | max, 1000) | min }} {% endif %}
 
       marstek_should_update: >
-        {% set marstek_delay = last_changed >= 1 %}
-        {% set marstek_significant_change = (p_marstek_last - marstek_calc) | abs > 10 %}
-        {{ marstek_delay and marstek_significant_change }}
+        {% set marstek_delay = last_changed >= 2 %}
+        {% set diff = (p_marstek_last - marstek_calc | float(0)) | abs %}
+        {% set marstek_significant_change = diff > 10 %}
+  
+        {{ marstek_delay and marstek_significant_change and marstek_calc is numeric }}
 
 
   # HMS LOGIK (Nutzt p_avg für Ruhe im System!)
