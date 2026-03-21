@@ -1,11 +1,11 @@
-alias: TEST Marstek & HMS Kombi-Regelung (Avg)
-description: Marstek auf Echtzeit (p_raw), HMS auf Mittelwert (p_avg).
+alias: TEST Marstek & HMS Kombi-Regelung (Virtueller Bedarf)
+description: Verhindert, dass Marstek die Entdrosselung des HMS blockiert.
 triggers:
   - entity_id: sensor.tasmota_mt175_power_curr
     trigger: state
 mode: single
 actions:
-  # 1. API-RESTART LOGIK
+  # 1. API-RESTART LOGIK (Unverändert)
   - if:
       - condition: template
         value_template: "{{ states('sensor.marstek_venus_a_state_of_charge') in ['unavailable','unknown'] }}"
@@ -47,18 +47,15 @@ actions:
     data:
       value: "{{ [old_count + 1, max_samples] | min }}"
 
-  # 3. VARIABLEN-BLOCK (Getrennt nach Echtzeit und Mittelwert)
+  # 3. VARIABLEN-BLOCK
   - variables:
-      # P_AVG für HMS (Glättung)
       p_avg: "{{ (states('input_number.p_sum') | float(0) / [states('input_number.p_count') | float(1), 1] | max) | round(1) }}"
-      
-      # BASIS-DATEN
       soc: "{{ states('sensor.marstek_venus_a_state_of_charge') | float(0) }}"
       discharge_lock: "{{ is_state('input_boolean.speicher_entladen_sperren', 'on') }}"
       p_marstek_last: "{{ states('input_number.marstek_last_output_value') | float(0) }}"
       last_changed: "{{ (as_timestamp(now()) - as_timestamp(states.input_number.marstek_last_output_value.last_updated | default(now()))) | int }}"
 
-      # MARSTEK LOGIK (Nutzt p_raw für schnelle Reaktion!)
+      # --- MARSTEK LOGIK (Echtzeit) ---
       p_pure: "{{ p_raw + p_marstek_last }}"
       min_soc: >
         {% set weather = states('weather.forecast_home') %}
@@ -82,28 +79,28 @@ actions:
         {% set diff = (p_marstek_last - marstek_calc | float(0)) | abs %}
         {% set marstek_significant_change = diff > 10 %}
         {{ marstek_delay and marstek_significant_change and marstek_calc is number }}
-  
-  # HMS LOGIK (Nutzt p_avg für Ruhe im System!)
+
+      # --- HMS LOGIK (Geglättet & Virtuell) ---
       current_hms_limit: "{{ states('number.hms_1600_zaun_limit_nonpersistent_absolute') | float(0) }}"
       target_export: -400
-      new_hms_limit_raw: "{{ (current_hms_limit + p_avg - target_export) | round(0) | int }}"
+      
+      # WICHTIG: Der HMS muss wissen, was der Marstek gerade tut, um nicht "blind" zu sein.
+      # Wir nutzen p_pure (Zähler + Speicherleistung) statt nur p_avg.
+      p_avg_marstek: "{{ states('sensor.hms_1600_zaun_power') | float(0) }}" # Optional zur Sicherheit
+      
+      # Wir berechnen das HMS-Limit basierend auf p_pure (Geglättet wäre hier p_avg + p_marstek_last)
+      p_virtual_hms: "{{ p_avg + p_marstek_last }}"
+      
+      new_hms_limit_raw: "{{ (current_hms_limit + p_virtual_hms - target_export) | round(0) | int }}"
       clamped_hms_limit: "{{ [[new_hms_limit_raw, 100] | max, 1600] | min }}"
 
       hms_should_update: >
-        {% set low_export_or_import = p_avg > -50 %}
-        {% set extreme_export = p_avg < -600 %}
+        {% set low_export_or_import = p_virtual_hms > -50 %}
+        {% set extreme_export = p_virtual_hms < -600 %}
         {% set significant_change = (clamped_hms_limit - current_hms_limit) | abs > 25 %}
         {{ (low_export_or_import or extreme_export) and significant_change }}
 
-   # Debug Ausgabe
-   #- action: input_number.set_value
-    #target:
-   #   entity_id: input_number.marstek_debug_value
-  #  data:
-   #   value: "{{ soc | float }}"
-
-    
-  # 4. AUSFÜHRUNG MARSTEK (Schnell)
+  # 4. AUSFÜHRUNG MARSTEK
   - if:
       - condition: template
         value_template: "{{ marstek_should_update }}"
@@ -119,8 +116,7 @@ actions:
         data:
           value: "{{ marstek_calc | float }}"
 
-  # 5. AUSFÜHRUNG HMS (Gedämpft)
-
+  # 5. AUSFÜHRUNG HMS
   - if:
       - condition: template
         value_template: "{{ hms_should_update }}"
@@ -130,10 +126,8 @@ actions:
           entity_id: number.hms_1600_zaun_limit_nonpersistent_absolute
         data:
           value: "{{ clamped_hms_limit }}"
-
-       # Debug Ausgabe
       - action: input_number.set_value
         target:
           entity_id: input_number.marstek_debug_value
         data:
-          value: "{{ new_hms_limit_raw | float }}"  
+          value: "{{ clamped_hms_limit | float }}"
