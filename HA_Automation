@@ -1,14 +1,15 @@
-alias: Marstek & HMS Kombi-Regelung (FIXED)
-description: Marstek auf Echtzeit (p_raw), HMS auf Mittelwert (p_avg).
+alias: Marstek & HMS Kombi-Regelung (Urlaubs-Modus & Wetter)
+description: Mit 80% Ladelimit Option, 12% Sonnen-Entladung und 200W HMS-Limit
+mode: single
 triggers:
   - entity_id: sensor.tasmota_mt175_power_curr
     trigger: state
-mode: single
 actions:
-  # 1. API-RESTART LOGIK
   - if:
       - condition: template
-        value_template: "{{ states('sensor.marstek_venus_a_state_of_charge') in ['unavailable','unknown'] }}"
+        value_template: >-
+          {{ states('sensor.marstek_venus_a_state_of_charge') in
+          ['unavailable','unknown'] }}
     then:
       - action: input_number.set_value
         target:
@@ -17,86 +18,66 @@ actions:
           value: "{{ states('input_number.marstek_api_restarts') | float(0) + 1 }}"
       - action: homeassistant.reload_config_entry
         data:
-          entry_id: 01KJ2V2DEGFKQ846S556B89RBQ
+          entry_id: 01KJ2V2DEGFKQ846S556B89RBQ #evtl. 01KCBR7YF159PYWZD1WG03WRKT
       - delay:
           seconds: 30
-      - stop: API Restart
-
-  # 2. MITTELWERT-BERECHNUNG (Hintergrund-Aktualisierung der Helfer)
+      - stop: Marstek API neu geladen.
   - variables:
-      max_samples: 10
-      p_raw: "{{ states('sensor.tasmota_mt175_power_curr') | float(0) }}"
-      old_sum: "{{ states('input_number.p_sum') | float(0) }}"
-      old_count: "{{ states('input_number.p_count') | int(0) }}"
-      p_avg_old: "{{ (old_sum / old_count) if old_count > 0 else p_raw }}"
-
-  - action: input_number.set_value
-    target:
-      entity_id: input_number.p_sum
-    data:
-      value: >
-        {% if old_count >= max_samples %}
-          {{ (old_sum - p_avg_old + p_raw) | round(2) }}
-        {% else %}
-          {{ (old_sum + p_raw) | round(2) }}
-        {% endif %}
-
-  - action: input_number.set_value
-    target:
-      entity_id: input_number.p_count
-    data:
-      value: "{{ [old_count + 1, max_samples] | min }}"
-
-  # 3. VARIABLEN-BLOCK (Getrennt nach Echtzeit und Mittelwert)
-  - variables:
-      # P_AVG für HMS (Glättung)
-      p_avg: "{{ (states('input_number.p_sum') | float(0) / [states('input_number.p_count') | float(1), 1] | max) | round(1) }}"
-      
-      # BASIS-DATEN
+      p_now: "{{ states('sensor.tasmota_mt175_power_curr') | float(0) }}"
       soc: "{{ states('sensor.marstek_venus_a_state_of_charge') | float(0) }}"
       discharge_lock: "{{ is_state('input_boolean.speicher_entladen_sperren', 'on') }}"
-      p_marstek_last: "{{ states('input_number.marstek_last_output_value') | float(0) }}"
-      last_changed: "{{ (as_timestamp(now()) - as_timestamp(states.input_number.marstek_last_output_value.last_updated | default(now()))) | int }}"
+      
+      # --- EINSTELLUNGEN ---
+      max_soc_limit: 100  # Ändere dies auf 100 für Normalbetrieb oder 80 für Urlaub
+      # ---------------------
 
-      # MARSTEK LOGIK (Nutzt p_raw für schnelle Reaktion!)
-      p_pure: "{{ p_raw + p_marstek_last }}"
-      min_soc: >
+      c_limit: >-
+        {{ states('number.hms_1600_zaun_limit_nonpersistent_absolute') |
+        float(1600) }}
+      actual_solar: "{{ states('sensor.hms_1600_zaun_power') | float(0) }}"
+      p_marstek_last: "{{ states('input_number.marstek_last_output_value') | float(0) }}"
+      last_changed: >-
+        {{ (as_timestamp(now()) -
+        as_timestamp(states.input_number.marstek_last_output_value.last_updated
+        | default(now()))) | int }}
+      p_pure: "{{ p_now + p_marstek_last }}"
+      
+      min_soc: >-
         {% set weather = states('weather.forecast_home') %}
         {% set is_sunny = weather in ['sunny', 'partlycloudy', 'clear-night'] %}
         {% set is_time_window = 6 <= now().hour < 14 %}
         {{ 12 if (is_sunny and is_time_window) else 20 }}
-
+        
       target_with_margin: |-
-        {% if p_pure > 20 %} {{ p_pure - 20 }}
-        {% elif p_pure < -10 %} {{ p_pure + 10 }}
-        {% else %} 0 {% endif %}
+        {% if p_pure > 20 %}
+          {{ p_pure - 20 }}
+        {% elif p_pure < -10 %}
+          {{ p_pure + 10 }}
+        {% else %}
+          0
+        {% endif %}
 
-      marstek_calc: >
-        {% if (soc >= 100 and target_with_margin < 0) or (soc <= min_soc and target_with_margin > 0) %} 0
-        {% elif discharge_lock and target_with_margin > 0 %} 0
-        {% elif target_with_margin | abs < 30 %} 0
-        {% else %} {{ ([target_with_margin, -1200] | max, 1000) | min }} {% endif %}
+      marstek_calc: >-
+        {# Bedingung 1: Entladestopp bei min_soc #}
+        {% if soc <= min_soc and target_with_margin > 0 %}
+          0
+        {# Bedingung 2: Ladestopp bei max_soc_limit (Urlaubsmodus) #}
+        {% elif soc >= max_soc_limit and target_with_margin < 0 %}
+          0
+        {% elif discharge_lock and target_with_margin > 0 %}
+          0
+        {% elif target_with_margin | abs < 30 %}
+          0
+        {% else %}
+          {{ ([target_with_margin, -1200] | max, 1000) | min }}
+        {% endif %}
 
-   # Debug Ausgabe
-   - action: input_number.set_value
+  - action: input_number.set_value
     target:
       entity_id: input_number.marstek_debug_value
     data:
       value: "{{ soc | float }}"
 
-      # HMS LOGIK (Nutzt p_avg für Ruhe im System!)
-      current_hms_limit: "{{ states('number.hms_1600_zaun_limit_nonpersistent_absolute') | float(0) }}"
-      target_export: -400
-      new_hms_limit_raw: "{{ (current_hms_limit + p_avg - target_export) | round(0) | int }}"
-      clamped_hms_limit: "{{ [[new_hms_limit_raw, 200] | max, 1600] | min }}"
-
-      hms_should_update: >
-        {% set low_export_or_import = p_avg > -50 %}
-        {% set extreme_export = p_avg < -600 %}
-        {% set significant_change = (clamped_hms_limit - current_hms_limit) | abs > 15 %}
-        {{ (low_export_or_import or extreme_export) and significant_change }}
-
-  # 4. AUSFÜHRUNG MARSTEK (Schnell)
   - if:
       - condition: template
         value_template: "{{ last_changed >= 2 }}"
@@ -112,13 +93,28 @@ actions:
         data:
           value: "{{ marstek_calc | float }}"
 
-  # 5. AUSFÜHRUNG HMS (Gedämpft)
-  - if:
-      - condition: template
-        value_template: "{{ hms_should_update }}"
-    then:
-      - action: number.set_value
-        target:
-          entity_id: number.hms_1600_zaun_limit_nonpersistent_absolute
-        data:
-          value: "{{ clamped_hms_limit }}"
+  - variables:
+      new_hms_limit: |-
+        {% if soc < 90 and (marstek_calc | float) < -10 %}
+          1600
+        {% else %}
+          {% set diff_hms = (p_now + 200) | abs %}
+          {% if diff_hms < 15 %}
+            {{ c_limit }}
+          {% elif p_now < -205 %}
+            {{ [c_limit - (diff_hms * 0.5), 200] | max }}
+          {% elif p_now > -195 %}
+            {% if (c_limit - actual_solar) > 50 %}
+              {{ c_limit }}
+            {% else %}
+              {{ [c_limit + diff_hms, 1600] | min }}
+            {% endif %}
+          {% else %}
+            {{ c_limit }}
+          {% endif %}
+        {% endif %}
+  #- action: number.set_value
+   # target:
+     # entity_id: number.hms_1600_zaun_limit_nonpersistent_absolute
+   # data:
+    #  value: "{{ new_hms_limit | int }}"
