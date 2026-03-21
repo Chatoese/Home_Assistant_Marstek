@@ -3,6 +3,7 @@ description: Marstek auf Echtzeit (p_raw), HMS auf Mittelwert (p_avg).
 triggers:
   - entity_id: sensor.tasmota_mt175_power_curr
     trigger: state
+mode: single
 actions:
   # 1. API-RESTART LOGIK
   - if:
