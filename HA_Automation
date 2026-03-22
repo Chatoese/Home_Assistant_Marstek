@@ -75,10 +75,10 @@ actions:
         {% else %} {{ ([target_with_margin, -1200] | max, 1000) | min }} {% endif %}    
       
       marstek_should_update: >
-        {% set marstek_delay = last_changed >= 2 %}
-        {% set diff = (p_marstek_last - marstek_calc | float(0)) | abs %}
-        {% set marstek_significant_change = diff > 10 %}
-        {{ marstek_delay and marstek_significant_change and marstek_calc is number }}
+        {% set significant_change = (p_marstek_last - marstek_calc | float(0)) | abs > 8 %}
+        {% set force_update_timeout = last_changed >= 60 %}
+        {% set wait_safety_buffer = last_changed >= 2 %}
+        {{ wait_safety_buffer and (significant_change or force_update_timeout) and marstek_calc is number }}
 
   # --- HMS LOGIK (Optimiert für Ladevorgänge) ---
       current_hms_limit: "{{ states('number.hms_1600_zaun_limit_nonpersistent_absolute') | float(0) }}"
@@ -110,7 +110,7 @@ actions:
         data:
           device_id: 407e8c2f27288771c00fde327bb2b91d
           power: "{{ marstek_calc | int }}"
-          duration: 60
+          duration: 90
       - action: input_number.set_value
         target:
           entity_id: input_number.marstek_last_output_value
