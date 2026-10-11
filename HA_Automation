@@ -72,7 +72,7 @@ actions:
         {% if (soc >= 100 and target_with_margin < 0) or (soc <= min_soc and target_with_margin > 0) %} 0
         {% elif discharge_lock and target_with_margin > 0 %} 0
         {% elif target_with_margin | abs < 30 %} 0
-        {% else %} {{ ([target_with_margin, -1200] | max, 1000) | min }} {% endif %}    
+        {% else %} {{ ([target_with_margin, -1200] | max, 1200) | min }} {% endif %}    
       
       marstek_should_update: >
         {% set significant_change = (p_marstek_last - marstek_calc | float(0)) | abs > 8 %}
