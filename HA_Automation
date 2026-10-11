@@ -61,7 +61,7 @@ actions:
         {% set weather = states('weather.forecast_home') %}
         {% set is_sunny = weather in ['sunny', 'partlycloudy', 'clear-night'] %}
         {% set is_time_window = 6 <= now().hour < 12 %}
-        {{ 12 if (is_sunny and is_time_window) else 20 }}
+        {{ 20 if (is_sunny and is_time_window) else 30 }}
 
       target_with_margin: |-
         {% if p_pure > 20 %} {{ p_pure - 20 }}
