@@ -5,6 +5,8 @@ triggers:
     trigger: state
 mode: single
 actions:
+  # Beim Autoladen läuft der Wert für die Summe über, dadurch wird voll aus dem Netz geladen
+  # kann durch Anpassung der Limits geändert werden wenn größerer Speicher im Haus oder Akku nicht leer wird
   # 1. API-RESTART LOGIK (Unverändert)
   - if:
       - condition: template
